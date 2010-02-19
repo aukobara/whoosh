@@ -23,8 +23,9 @@ import os, tempfile
 from heapq import heapify, heapreplace, heappop
 from struct import Struct
 
-from whoosh.filedb.structfile import StructFile, pack_ushort, unpack_ushort
-from whoosh.system import _INT_SIZE, _USHORT_SIZE
+from whoosh.filedb.structfile import StructFile
+from whoosh.system import (_INT_SIZE, _SHORT_SIZE,
+                           pack_ushort, unpack_ushort)
 from whoosh.util import utf8encode, utf8decode
 
 
@@ -50,10 +51,10 @@ def decode_posting(posting):
     (field_number, text, document_number, datastring) tuple.
     """
 
-    field_num = unpack_ushort(posting[:_USHORT_SIZE])[0]
+    field_num = unpack_ushort(posting[:_SHORT_SIZE])[0]
 
-    zero = posting.find(chr(0), _USHORT_SIZE)
-    text = utf8decode(posting[_USHORT_SIZE:zero])[0]
+    zero = posting.find(chr(0), _SHORT_SIZE)
+    text = utf8decode(posting[_SHORT_SIZE:zero])[0]
 
     metastart = zero + 1
     metaend = metastart + _INT_SIZE * 2
@@ -224,24 +225,20 @@ class PostingPool(object):
         self.limit = limit
         self.size = 0
         self.postings = []
-        self.finished = False
 
         self.runs = []
         self.tempfilenames = []
         self.count = 0
 
-    def add_posting(self, field_num, text, doc, freq, datastring):
+    def add_posting(self, fieldnum, text, docnum, freq, datastring):
         """Adds a posting to the pool.
         """
-
-        if self.finished:
-            raise Exception("Can't add postings after you iterate over the pool")
 
         if self.size >= self.limit:
             #print "Flushing..."
             self._flush_run()
 
-        posting = encode_posting(field_num, text, doc, freq, datastring)
+        posting = encode_posting(fieldnum, text, docnum, freq, datastring)
         self.size += len(posting)
         self.postings.append(posting)
         self.count += 1
@@ -252,6 +249,7 @@ class PostingPool(object):
 
         if self.size > 0:
             tempfd, tempname = tempfile.mkstemp(".whooshrun")
+            print "Run:", tempname
             runfile = StructFile(os.fdopen(tempfd, "w+b"))
 
             self.postings.sort()
@@ -268,13 +266,10 @@ class PostingPool(object):
             self.size = 0
             self.count = 0
 
-    def __iter__(self):
+    def iter_postings(self):
         # Iterating the PostingPool object performs a merge sort of the runs
         # that have been written to disk and yields the sorted, decoded
         # postings.
-
-        if self.finished:
-            raise Exception("Tried to iterate on PostingPool twice")
 
         run_count = len(self.runs)
         if self.postings and run_count == 0:
@@ -282,6 +277,7 @@ class PostingPool(object):
             # disk, so the postings are still in memory: just yield them from
             # there.
 
+            print "--"
             self.postings.sort()
             for p in self.postings:
                 yield decode_posting(p)
@@ -315,9 +311,55 @@ class PostingPool(object):
         for tempfilename in self.tempfilenames:
             os.remove(tempfilename)
             
-        # And we're done.
-        self.finished = True
+    def flush(self, termtable, postwriter, schema):
+        # This method pulls postings out of the posting pool (built up as
+        # documents are added) and writes them to the posting file. Each time
+        # it encounters a posting for a new term, it writes the previous term
+        # to the term index (by waiting to write the term entry, we can easily
+        # count the document frequency and sum the terms by looking at the
+        # postings).
 
+        current_fieldnum = None # Field number of the current term
+        current_text = None # Text of the current term
+        first = True
+        current_freq = 0
+        offset = None
+
+        # Loop through the postings in the pool. Postings always come out of
+        # the pool in (field number, lexical) order.
+        for fieldnum, text, docnum, freq, valuestring in self.iter_postings():
+            # Is this the first time through, or is this a new term?
+            if first or fieldnum > current_fieldnum or text > current_text:
+                if first:
+                    first = False
+                else:
+                    # This is a new term, so finish the postings and add the
+                    # term to the term table
+                    postcount = postwriter.finish()
+                    termtable.add((current_fieldnum, current_text),
+                                  (current_freq, offset, postcount))
+
+                # Reset the post writer and the term variables
+                current_fieldnum = fieldnum
+                current_text = text
+                current_freq = 0
+                offset = postwriter.start(schema[fieldnum].format)
+
+            elif (fieldnum < current_fieldnum
+                  or (fieldnum == current_fieldnum and text < current_text)):
+                # This should never happen!
+                raise Exception("Postings are out of order: %s:%s .. %s:%s" %
+                                (current_fieldnum, current_text, fieldnum, text))
+
+            # Write a posting for this occurrence of the current term
+            current_freq += freq
+            postwriter.write(docnum, valuestring)
+
+        # If there are still "uncommitted" postings at the end, finish them off
+        if not first:
+            postcount = postwriter.finish()
+            termtable.add((current_fieldnum, current_text),
+                          (current_freq, offset, postcount))
 
 
 

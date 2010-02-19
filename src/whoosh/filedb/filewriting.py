@@ -20,14 +20,15 @@ from collections import defaultdict
 from whoosh.fields import UnknownFieldError
 from whoosh.store import LockError
 from whoosh.writing import IndexWriter
-from whoosh.filedb import postpool
+from whoosh.filedb.pools import PostingPool
 from whoosh.support.filelock import try_for
 from whoosh.filedb.fileindex import SegmentDeletionMixin, Segment, SegmentSet
 from whoosh.filedb.filepostings import FilePostingWriter
 from whoosh.filedb.filetables import (FileTableWriter, FileListWriter,
                                       FileRecordWriter, encode_termkey,
                                       encode_vectorkey, encode_terminfo,
-                                      enpickle, packint)
+                                      enpickle)
+from whoosh.system import pack_uint
 from whoosh.util import fib
 
 
@@ -91,7 +92,7 @@ def create_storedfields(storage, segment):
 def create_vectors(storage, segment):
     vectorfile = storage.create_file(segment.vector_filename)
     return FileTableWriter(vectorfile, keycoder=encode_vectorkey,
-                           valuecoder=packint)
+                           valuecoder=pack_uint)
 
 def create_doclengths(storage, segment, fieldcount):
     recordformat = "!" + DOCLENGTH_TYPE * fieldcount
@@ -105,16 +106,16 @@ class FileIndexWriter(SegmentDeletionMixin, IndexWriter):
     # This class is mostly a shell for SegmentWriter. It exists to handle
     # multiple SegmentWriters during merging/optimizing.
 
-    def __init__(self, ix, postlimit=32 * 1024 * 1024, blocklimit=128,
+    def __init__(self, ix, pool=None, blocklimit=128,
                  timeout=0.0, delay=0.1):
         """
         :param ix: the Index object you want to write to.
-        :param postlimit: Essentially controls the maximum amount of memory the
-            indexer uses at a time, in bytes (the actual amount of memory used
+        :param postlimitmb: Essentially controls the maximum amount of memory
+            the indexer uses at a time, in MB (the actual amount of memory used
             by the Python process will be much larger because of other
             overhead). The default (32MB) is a bit small. You may want to
             increase this value for very large collections, e.g.
-            ``postlimit=256*1024*1024``.
+            ``postlimitmb=256``.
         """
 
         self.lock = ix.storage.lock(ix.indexname + "_LOCK")
@@ -123,7 +124,7 @@ class FileIndexWriter(SegmentDeletionMixin, IndexWriter):
 
         self.index = ix
         self.segments = ix.segments.copy()
-        self.postlimit = postlimit
+        self.pool = pool or PostingPool(32)
         self.blocklimit = blocklimit
         self._segment_writer = None
         self._searcher = ix.searcher()
@@ -138,7 +139,7 @@ class FileIndexWriter(SegmentDeletionMixin, IndexWriter):
         """
 
         if not self._segment_writer:
-            self._segment_writer = SegmentWriter(self.index, self.postlimit,
+            self._segment_writer = SegmentWriter(self.index, self.pool,
                                                  self.blocklimit)
         return self._segment_writer
 
@@ -184,10 +185,11 @@ class SegmentWriter(object):
     fields, handles the posting pool, and writes out the term index.
     """
 
-    def __init__(self, ix, postlimit, blocklimit, name=None):
+    def __init__(self, ix, pool, blocklimit, name=None):
         """
         :param ix: the Index object in which to write the new segment.
-        :param postlimit: the maximum size for a run in the posting pool.
+        :param postlimitmb: the maximum size, in MB for a run in the posting
+            pool.
         :param blocklimit: the maximum number of postings in a posting block.
         :param name: the name of the segment.
         """
@@ -199,7 +201,7 @@ class SegmentWriter(object):
 
         self.max_doc = 0
 
-        self.pool = postpool.PostingPool(postlimit)
+        self.pool = pool
 
         # Create mappings of field numbers to the position of that field in the
         # lists of scorable and stored fields. For example, consider a schema
@@ -258,7 +260,7 @@ class SegmentWriter(object):
         and closes all open files.
         """
 
-        self._flush_pool()
+        self.pool.flush_postings(self.termtable, self.postwriter, self.schema)
         self._close_all()
 
     def add_reader(self, reader):
@@ -354,6 +356,7 @@ class SegmentWriter(object):
         # length.
         storedvalues = [None] * len(stored_to_pos)
 
+        docnum = self.max_doc
         for name in fieldnames:
             value = fields.get(name)
             if value:
@@ -363,26 +366,14 @@ class SegmentWriter(object):
                 # If the field is indexed, add the words in the value to the
                 # index
                 if field.indexed:
-                    # Count of all terms in the value
-                    count = 0
-                    # Count of UNIQUE terms in the value
-                    unique = 0
-
-                    # TODO: Method for adding progressive field values, ie
-                    # setting start_pos/start_char?
-                    for w, freq, valuestring in field.index(value):
-                        #assert w != ""
-                        self.pool.add_posting(fieldnum, w, self.max_doc, freq,
-                                              valuestring)
-                        count += freq
-                        unique += 1
-
-                    if field.scorable:
-                        # Add the term count to the total for this field
-                        self.field_length_totals[fieldnum] += count
-                        # Set the term count to the per-document field length
-                        pos = scorable_to_pos[fieldnum]
-                        fieldlengths[pos] = min(count, DOCLENGTH_LIMIT)
+                    self.pool.add_content(docnum, fieldnum, field, value)
+                    
+                    #if field.scorable:
+                    #    # Add the term count to the total for this field
+                    #    self.field_length_totals[fieldnum] += count
+                    #    # Set the term count to the per-document field length
+                    #    pos = scorable_to_pos[fieldnum]
+                    #    fieldlengths[pos] = min(count, DOCLENGTH_LIMIT)
 
                 # If the field is vectored, add the words in the value to the
                 # vector table
@@ -429,59 +420,7 @@ class SegmentWriter(object):
 
         self.vectortable.add((self.max_doc, fieldnum), offset)
 
-    def _flush_pool(self):
-        # This method pulls postings out of the posting pool (built up as
-        # documents are added) and writes them to the posting file. Each time
-        # it encounters a posting for a new term, it writes the previous term
-        # to the term index (by waiting to write the term entry, we can easily
-        # count the document frequency and sum the terms by looking at the
-        # postings).
 
-        termtable = self.termtable
-        postwriter = self.postwriter
-        schema = self.schema
-
-        current_fieldnum = None # Field number of the current term
-        current_text = None # Text of the current term
-        first = True
-        current_freq = 0
-        offset = None
-
-        # Loop through the postings in the pool. Postings always come out of
-        # the pool in (field number, lexical) order.
-        for fieldnum, text, docnum, freq, valuestring in self.pool:
-            # Is this the first time through, or is this a new term?
-            if first or fieldnum > current_fieldnum or text > current_text:
-                if first:
-                    first = False
-                else:
-                    # This is a new term, so finish the postings and add the
-                    # term to the term table
-                    postcount = postwriter.finish()
-                    termtable.add((current_fieldnum, current_text),
-                                  (current_freq, offset, postcount))
-
-                # Reset the post writer and the term variables
-                current_fieldnum = fieldnum
-                current_text = text
-                current_freq = 0
-                offset = postwriter.start(schema[fieldnum].format)
-
-            elif (fieldnum < current_fieldnum
-                  or (fieldnum == current_fieldnum and text < current_text)):
-                # This should never happen!
-                raise Exception("Postings are out of order: %s:%s .. %s:%s" %
-                                (current_fieldnum, current_text, fieldnum, text))
-
-            # Write a posting for this occurrence of the current term
-            current_freq += freq
-            postwriter.write(docnum, valuestring)
-
-        # If there are still "uncommitted" postings at the end, finish them off
-        if not first:
-            postcount = postwriter.finish()
-            termtable.add((current_fieldnum, current_text),
-                          (current_freq, offset, postcount))
 
 
 
