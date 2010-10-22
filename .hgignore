@@ -1,0 +1,14 @@
+syntax: glob
+*.pyc
+*~
+*.DS_Store
+
+.settings
+
+build
+dist
+docs/build
+src/Whoosh.egg-info
+
+bmark
+*testindex
