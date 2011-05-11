@@ -902,6 +902,21 @@ def test_fuzzyterm():
     with ix.searcher() as s:
         q = FuzzyTerm("f", "brave")
         assert_equal([d["id"] for d in s.search(q)], [1, 2])
+        
+def test_fuzzyterm2():
+    schema = fields.Schema(id=fields.STORED, f=fields.TEXT(spelling=True))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=1, f=u"alfa bravo charlie delta")
+    w.add_document(id=2, f=u"bravo charlie delta echo")
+    w.add_document(id=3, f=u"charlie delta echo foxtrot")
+    w.add_document(id=4, f=u"delta echo foxtrot golf")
+    w.commit()
+    
+    with ix.searcher() as s:
+        assert_equal(list(s.reader().terms_within("f", u"brave", 1)), ["bravo"])
+        q = FuzzyTerm("f", "brave")
+        assert_equal([d["id"] for d in s.search(q)], [1, 2])
     
 def test_multireader_not():
     schema = fields.Schema(id=fields.STORED, f=fields.TEXT)
@@ -1129,7 +1144,7 @@ def test_collect_limit():
     w.add_document(id="d", text=u"delta echo foxtrot golf hotel")
     w.add_document(id="e", text=u"echo foxtrot golf hotel india")
     w.commit()
-    
+        
     with ix.searcher() as s:
         r = s.search(query.Term("text", u"golf"), limit=10)
         assert_equal(len(r), 3)
@@ -1137,7 +1152,7 @@ def test_collect_limit():
         for _ in r:
             count += 1
         assert_equal(count, 3)
-    
+
     w = ix.writer()
     w.add_document(id="f", text=u"foxtrot golf hotel india juliet")
     w.add_document(id="g", text=u"golf hotel india juliet kilo")
@@ -1145,7 +1160,7 @@ def test_collect_limit():
     w.add_document(id="i", text=u"india juliet kilo lima mike")
     w.add_document(id="j", text=u"juliet kilo lima mike november")
     w.commit(merge=False)
-    
+
     with ix.searcher() as s:
         r = s.search(query.Term("text", u"golf"), limit=20)
         assert_equal(len(r), 5)

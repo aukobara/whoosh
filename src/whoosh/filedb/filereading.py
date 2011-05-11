@@ -35,6 +35,7 @@ from whoosh.filedb.filetables import (TermIndexReader, StoredFieldReader,
                                       LengthReader, TermVectorReader)
 from whoosh.matching import FilterMatcher, ListMatcher
 from whoosh.reading import IndexReader, TermNotFound
+from whoosh.support.dawg import DawgReader
 from whoosh.util import protected
 
 SAVE_BY_DEFAULT = True
@@ -83,6 +84,17 @@ class SegmentReader(IndexReader):
         # Postings file
         self.postfile = self.storage.open_file(segment.termposts_filename,
                                                mapped=False)
+        
+        # Dawg file
+        self.dawg = None
+        if any(field.spelling for field in self.schema):
+            fname = segment.dawg_filename
+            if not self.storage.file_exists(fname):
+                spelled = [fn for fn, field in self.schema.items() if field.spelling]
+                raise Exception("Field(s) %r have spelling=True but DAWG file %r not found" % (spelled, fname))
+            
+            dawgfile = self.storage.open_file(fname, mapped=False)
+            self.dawg = DawgReader(dawgfile)
         
         self.dc = segment.doc_count_all()
         assert self.dc == self.storedfields.length
@@ -286,6 +298,28 @@ class SegmentReader(IndexReader):
         
         return FilePostingReader(self.vpostfile, offset, vformat, stringids=True)
 
+    # DAWG methods
+
+    def has_word_graph(self, fieldname):
+        if fieldname not in self.schema:
+            raise TermNotFound("No field %r" % fieldname)
+        if not self.schema[fieldname].spelling:
+            return False
+        if self.dawg:
+            return fieldname in self.dawg.fields
+        return False
+
+    def word_graph(self, fieldname):
+        if not self.has_word_graph(fieldname):
+            raise Exception("No word graph for field %r" % fieldname)
+        return self.dawg.field_root(fieldname)
+
+    def _field_root(self, fieldname):
+        if not self.has_word_graph(fieldname):
+            raise Exception("No word graph for field %r" % fieldname)
+        
+        return self.dawg.field_root(fieldname)
+    
     # Field cache methods
 
     def supports_caches(self):
