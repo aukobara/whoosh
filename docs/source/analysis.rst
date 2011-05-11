@@ -193,7 +193,7 @@ filters to use based on the mode setting::
 Stop words
 ----------
 
-"Stop" words are words that are so common that it's often counter-productive to index
+"Stop" words are words that are so common it's often counter-productive to index
 them, such as "and", "or", "if", etc. The provided analysis.StopFilter lets you
 filter out stop words, and includes a default list of common stop words.
 
