@@ -40,10 +40,9 @@ from whoosh.lang.morph_en import variations
 from whoosh.matching import (AndMaybeMatcher, DisjunctionMaxMatcher,
                              ListMatcher, IntersectionMatcher, InverseMatcher,
                              NullMatcher, RequireMatcher, UnionMatcher,
-                             WrappingMatcher, ConstantScoreMatcher,
-                             AndNotMatcher)
+                             WrappingMatcher, AndNotMatcher)
 from whoosh.reading import TermNotFound
-from whoosh.support.levenshtein import relative
+from whoosh.support.levenshtein import distance
 from whoosh.support.times import datetime_to_long
 from whoosh.util import make_binary_tree, make_weighted_tree, methodcaller
 
@@ -1011,17 +1010,16 @@ class FuzzyTerm(MultiTerm):
     """
 
     __inittypes__ = dict(fieldname=str, text=unicode, boost=float,
-                         minsimilarity=float, prefixlength=int)
+                         maxdist=float, prefixlength=int)
 
-    def __init__(self, fieldname, text, boost=1.0, minsimilarity=0.5,
+    def __init__(self, fieldname, text, boost=1.0, maxdist=1,
                  prefixlength=1, constantscore=True):
         """
         :param fieldname: The name of the field to search.
         :param text: The text to search for.
         :param boost: A boost factor to apply to scores of documents matching
             this query.
-        :param minsimilarity: The minimum similarity ratio to match. 1.0 is the
-            maximum (an exact match to 'text').
+        :param maxdist: The maximum edit distance from the given text.
         :param prefixlength: The matched terms must share this many initial
             characters with 'text'. For example, if text is "light" and
             prefixlength is 2, then only terms starting with "li" are checked
@@ -1031,7 +1029,7 @@ class FuzzyTerm(MultiTerm):
         self.fieldname = fieldname
         self.text = text
         self.boost = boost
-        self.minsimilarity = minsimilarity
+        self.maxdist = maxdist
         self.prefixlength = prefixlength
         self.constantscore = constantscore
 
@@ -1039,39 +1037,35 @@ class FuzzyTerm(MultiTerm):
         return (other and self.__class__ is other.__class__
                 and self.fieldname == other.fieldname
                 and self.text == other.text
-                and self.minsimilarity == other.minsimilarity
+                and self.maxdist == other.maxdist
                 and self.prefixlength == other.prefixlength
                 and self.boost == other.boost
                 and self.constantscore == other.constantscore)
 
     def __repr__(self):
-        r = "%s(%r, %r, boost=%f, minsimilarity=%f, prefixlength=%d)"
+        r = "%s(%r, %r, boost=%f, maxdist=%d, prefixlength=%d)"
         return r % (self.__class__.__name__, self.fieldname, self.text,
-                    self.boost, self.minsimilarity, self.prefixlength)
+                    self.boost, self.maxdist, self.prefixlength)
 
     def __unicode__(self):
-        r = u"~" + self.text
+        r = self.text + "~"
+        if self.maxdist > 1:
+            r += "%d" % self.maxdist
         if self.boost != 1.0:
             r += "^%f" % self.boost
         return r
 
     def __hash__(self):
         return (hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
-                ^ hash(self.minsimilarity) ^ hash(self.prefixlength)
+                ^ hash(self.maxdist) ^ hash(self.prefixlength)
                 ^ hash(self.constantscore))
 
     def _all_terms(self, termset, phrases=True):
         termset.add((self.fieldname, self.text))
 
     def _words(self, ixreader):
-        text = self.text
-        minsim = self.minsimilarity
-        for term in ixreader.expand_prefix(self.fieldname,
-                                           text[:self.prefixlength]):
-            if text == term:
-                yield term
-            elif relative(text, term) > minsim:
-                yield term
+        return ixreader.terms_within(self.fieldname, self.text, self.maxdist,
+                                     prefix=self.prefixlength)
 
 
 class RangeMixin(object):

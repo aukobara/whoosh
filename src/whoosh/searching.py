@@ -38,6 +38,7 @@ from math import ceil
 
 from whoosh import classify, highlight, query, scoring
 from whoosh.reading import TermNotFound
+from whoosh.spelling import suggest
 from whoosh.support.bitvector import BitSet, BitVector
 from whoosh.util import now, lru_cache
 
@@ -98,8 +99,7 @@ class Searcher(object):
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
                      "lexicon", "frequency", "doc_frequency", 
-                     "field_length", "doc_field_length", "max_field_length",
-                     ):
+                     "field_length", "doc_field_length", "max_field_length"):
             setattr(self, name, getattr(self.ixreader, name))
 
     def __enter__(self):
@@ -350,6 +350,17 @@ class Searcher(object):
         else:
             for docnum in q.docs(self):
                 yield docnum
+
+    def suggest(self, fieldname, text, limit=5, maxdist=2, prefix=0,
+                ranking=None):
+        """Returns a sorted list of suggested corrections for the given
+        mis-typed word based on the contents of the given field.
+        
+        See :meth:`whoosh.spelling.suggest` for more information.
+        """
+        
+        return suggest(self.reader(), fieldname, text, limit=limit,
+                       maxdist=maxdist, prefix=prefix, ranking=ranking)
 
     def key_terms(self, docnums, fieldname, numterms=5,
                   model=classify.Bo1Model, normalize=True):
@@ -747,7 +758,7 @@ class Collector(object):
             self._allow = self._searcher._filter_to_comb(allow)
         if restrict:
             self._restrict = self._searcher._filter_to_comb(restrict)
-            
+        
         if self.timelimit:
             self.timer = threading.Timer(self.timelimit, self._timestop)
             self.timer.start()

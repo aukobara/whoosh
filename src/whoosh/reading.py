@@ -31,6 +31,8 @@
 from bisect import bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
+from whoosh.support.dawg import within
+from whoosh.support.levenshtein import distance
 from whoosh.util import ClosableMixin
 from whoosh.matching import MultiMatcher
 
@@ -292,6 +294,45 @@ class IndexReader(ClosableMixin):
                 yield (vec.id(), decoder(vec.value()))
                 vec.next()
 
+    def has_word_graph(self, fieldname):
+        """Returns True if the given field has a "word graph" associated with
+        it, allowing suggestions for correcting mis-typed words and fast fuzzy
+        term searching.
+        """
+        
+        return False
+    
+    def word_graph(self, fieldname):
+        """Returns the root :class:`whoosh.support.dawg.BaseNode` for the given
+        field, if the field has a stored word graph (otherwise raises an
+        exception). You can check whether a field has a word graph using
+        :meth:`IndexReader.has_word_graph`.
+        """
+        
+        raise NotImplementedError
+    
+    def terms_within(self, fieldname, text, maxdist, prefix=0, seen=None):
+        """Returns a generator of words in the given field within ``maxdist``
+        Damerau-Levenshtein edit distance of the given text.
+        
+        :param prefix: require suggestions to share a prefix of this length
+            with the given word. This is often justifiable since most
+            misspellings do not involve the first letter of the word.
+            Using a prefix dramatically decreases the time it takes to generate
+            the list of words.
+        """
+        
+        if self.has_word_graph(fieldname):
+            node = self.word_graph(fieldname)
+            for word in within(node, text, maxdist, prefix=prefix, seen=seen):
+                yield word
+        else:
+            for word in self.expand_prefix(fieldname, text[:prefix]):
+                if word == text:
+                    yield text
+                elif distance(word, text, limit=maxdist) <= maxdist:
+                    yield word
+    
     def most_frequent_terms(self, fieldname, number=5, prefix=''):
         """Returns the top 'number' most frequent terms in the given field as a
         list of (frequency, text) tuples.
@@ -316,7 +357,7 @@ class IndexReader(ClosableMixin):
         is atomic.
         """
         
-        return False
+        return None
     
     #
     
