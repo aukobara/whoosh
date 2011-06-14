@@ -243,8 +243,6 @@ class Matcher(object):
         
         raise NotImplementedError(self.__class__.__name__)
     
-    def __lt__(self, other):
-        return id(self) < id(other)
 
 class NullMatcher(Matcher):
     """Matcher with no postings which is never active.
@@ -1085,7 +1083,7 @@ class AndNotMatcher(BiMatcher):
             raise ReadTooFar
         ar = self.a.next()
         nr = False
-        if self.b.is_active():
+        if self.a.is_active() and self.b.is_active():
             nr = self._find_next()
         return ar or nr
 
