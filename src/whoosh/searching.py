@@ -102,7 +102,7 @@ class Searcher(object):
         # Copy attributes/methods from wrapped reader
         for name in ("stored_fields", "all_stored_fields", "vector", "vector_as",
                      "lexicon", "frequency", "doc_frequency", "term_info",
-                     "doc_field_length"):
+                     "doc_field_length", "corrector"):
             setattr(self, name, getattr(self.ixreader, name))
 
     def __enter__(self):
@@ -356,6 +356,36 @@ class Searcher(object):
             raise Exception("Don't know what to do with filter object %r" % obj)
         
         return c
+    
+    def suggest(self, fieldname, text, limit=5, maxdist=2, prefix=0):
+        """Returns a sorted list of suggested corrections for the given
+        mis-typed word ``text`` based on the contents of the given field::
+        
+            >>> searcher.suggest("content", "specail")
+            ["special"]
+        
+        This is a convenience method. If you are planning to get suggestions
+        for multiple words in the same field, it is more efficient to get a
+        :class:`~whoosh.spelling.Corrector` object and use it directly::
+        
+            corrector = searcher.corrector("fieldname")
+            for word in words:
+                print corrector.suggest(word)
+        
+        :param limit: only return up to this many suggestions. If there are not
+            enough terms in the field within ``maxdist`` of the given word, the
+            returned list will be shorter than this number.
+        :param maxdist: the largest edit distance from the given word to look
+            at. Numbers higher than 2 are not very effective or efficient.
+        :param prefix: require suggestions to share a prefix of this length
+            with the given word. This is often justifiable since most
+            misspellings do not involve the first letter of the word. Using a
+            prefix dramatically decreases the time it takes to generate the
+            list of words.
+        """
+        
+        c = self.reader().corrector(fieldname)
+        return c.suggest(text, limit=limit, maxdist=maxdist, prefix=prefix)
     
     def key_terms(self, docnums, fieldname, numterms=5,
                   model=classify.Bo1Model, normalize=True):
@@ -634,7 +664,7 @@ class Searcher(object):
             return sorter.sort_query(q, limit=limit, reverse=reverse,
                                      filter=filter)
         
-        collector = Collector(limit=limit, usequality=optimize,
+            collector = Collector(limit=limit, usequality=optimize,
                               groupedby=groupedby, reverse=reverse)
         return collector.search(self, q, allow=filter, restrict=mask)
         
@@ -669,7 +699,7 @@ class Collector(object):
             except TimeLimit, tl:
                 # You can still retrieve partial results from the collector
                 r = col.results()
-        
+            
         If the ``greedy`` keyword is ``True``, the collector will finish adding
         the most recent hit before raising the ``TimeLimit`` exception.
         """
@@ -768,7 +798,7 @@ class Collector(object):
         else:
             for s, offset in searcher.subsearchers:
                 self.add_matches(s, q, offset=offset)
-        
+            
         # If we started a time limit timer thread, cancel it
         if self.timelimit and self.timer:
             self.timer.cancel()
@@ -833,7 +863,7 @@ class Collector(object):
                 if score > items[0][0]:
                     heapreplace(items, (score, negated_offsetid))
                     self.minscore = items[0][0]
-    
+            
     def pull_matches(self, searcher, matcher, usequality, offset):
         """Low-level method yields (docid, score) pairs from the given matcher.
         Called by :meth:`Collector.add_matches`.
@@ -898,7 +928,7 @@ class Collector(object):
             # again.
             checkquality = matcher.next()
             
-                    
+
     def results(self):
         """Returns the current results from the collector. This is useful for
         getting the results out of a collector that was stopped by a time
@@ -912,13 +942,13 @@ class Collector(object):
         # Sort by negated scores so that higher scores go first, then by
         # document number to keep the order stable when documents have the same
         # score
-        items.sort(key=lambda x: (0 - x[0], x[1]), reverse=self.reverse)
+            items.sort(key=lambda x: (0 - x[0], x[1]), reverse=self.reverse)
         
         return Results(self.searcher, self.q, items, self.docset,
                        groups=self.groups, runtime=self.runtime,
                        filter=self.allow, mask=self.restrict)
-
-
+    
+        
 class TermTrackingCollector(Collector):
     """This collector records which parts of the query matched which documents
     in the final results. The results for each part of the query are available
@@ -977,10 +1007,10 @@ class TermTrackingCollector(Collector):
                                             offset):
             for key, m in self.matchers:
                 if m.is_active() and m.id() == offsetid - offset:
-                    if key not in self.catalog:
-                        self.catalog[key] = set()
+                if key not in self.catalog:
+                    self.catalog[key] = set()
                     self.catalog[key].add(offsetid)
-            
+        
             yield (offsetid, score)
     
     def _tag(self, q):
@@ -1524,7 +1554,7 @@ class Hit(object):
     
     def iteritems(self):
         return iteritems(self.fields())
-
+    
     def iterkeys(self):
         return iterkeys(self.fields())
     

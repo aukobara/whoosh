@@ -25,33 +25,180 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
-"""This module contains functions/classes using a Whoosh index as a backend for
-a spell-checking engine.
+"""This module contains helper functions for correcting typos in user queries.
 """
 
 from collections import defaultdict
+from heapq import heappush, heapreplace
 
 from whoosh.compat import xrange
+import whoosh.support.dawg as dawg
 from whoosh import analysis, fields, query, scoring
-from whoosh.support.levenshtein import relative, distance
+from whoosh.support.levenshtein import distance
 
+
+# Suggestion scorers
+
+def simple_scorer(word, cost):
+    """Ranks suggestions by the edit distance.
+    """
+    
+    return (cost, 0)
+
+
+class Corrector(object):
+    """This class allows you to generate suggested corrections for mis-typed
+    words based on a word list. Note that if you want to generate suggestions
+    based on the content of a field in an index, you should turn spelling on
+    for the field and use :func:`suggest` instead of this object.
+    """
+    
+    def suggest(self, text, limit=5, maxdist=2, prefix=0):
+        """
+        :param text: the text to check.
+        :param limit: only return up to this many suggestions. If there are not
+            enough terms in the field within ``maxdist`` of the given word, the
+            returned list will be shorter than this number.
+        :param maxdist: the largest edit distance from the given word to look
+            at. Numbers higher than 2 are not very effective or efficient.
+        :param prefix: require suggestions to share a prefix of this length
+            with the given word. This is often justifiable since most
+            misspellings do not involve the first letter of the word. Using a
+            prefix dramatically decreases the time it takes to generate the
+            list of words.
+        """
+        
+        suggestions = self.suggestions
+        
+        heap = []
+        seen = set()
+        for k in xrange(1, maxdist+1):
+            for item in suggestions(text, k, prefix, seen):
+                if len(heap) < limit:
+                    heappush(heap, item)
+                elif item < heap[0]:
+                    heapreplace(heap, item)
+            
+            # If the heap is already at the required length, don't bother going
+            # to a higher edit distance
+            if len(heap) >= limit:
+                break
+        
+        return [sug for _, sug in sorted(heap)]
+        
+    def suggestions(self, text, maxdist, prefix, seen):
+        """Low-level method that yields a series of (score, "suggestion")
+        tuples.
+        
+        :param text: the text to check.
+        :param maxdist: the maximum edit distance.
+        :param prefix: require suggestions to share a prefix of this length
+            with the given word.
+        :param seen: a set object with which to track already-seen words.
+        """
+        
+        raise NotImplementedError
+        
+
+class ReaderCorrector(Corrector):
+    """Suggests corrections based on the content of a field in a reader.
+    
+    Ranks suggestions by the edit distance, then by highest to lowest
+    frequency.
+    """
+    
+    def __init__(self, reader, fieldname):
+        self.reader = reader
+        self.fieldname = fieldname
+    
+    def suggestions(self, text, maxdist, prefix, seen):
+        fieldname = self.fieldname
+        freq = self.reader.frequency
+        for sug in self.reader.terms_within(self.fieldname, text, maxdist,
+                                            prefix=prefix, seen=seen):
+            yield ((maxdist, 0 - freq(fieldname, sug)), sug)
+
+
+class GraphCorrector(Corrector):
+    """Suggests corrections based on the content of a word list.
+    
+    By default ranks suggestions based on the edit distance.
+    """
+
+    def __init__(self, word_graph, ranking=None):
+        self.word_graph = word_graph
+        self.ranking = ranking or simple_scorer
+    
+    def suggestions(self, text, maxdist, prefix, seen):
+        ranking = self.ranking
+        for sug in dawg.within(self.word_graph, text, maxdist, prefix=prefix,
+                               seen=seen):
+            yield (ranking(sug, maxdist), sug)
+    
+    def save(self, filename):
+        f = open(filename, "wb")
+        self.word_graph.write(f)
+        f.close()
+    
+    @classmethod
+    def from_word_list(cls, wordlist, ranking=None, fieldname=""):
+        dw = dawg.DawgBuilder()
+        for word in wordlist:
+            dw.insert(word)
+        return cls(dw.root, ranking=ranking)
+    
+    @classmethod
+    def from_graph_file(cls, dbfile, ranking=None, fieldname=""):
+        dr = dawg.DiskNode.load(dbfile)
+        return cls(dr.root, ranking=ranking)
+    
+
+class MultiCorrector(Corrector):
+    """Merges suggestions from a list of sub-correctors.
+    """
+    
+    def __init__(self, correctors):
+        self.correctors = correctors
+        
+    def suggestions(self, text, maxdist, prefix, seen):
+        for corr in self.correctors:
+            for item in corr.suggestions(text, maxdist, prefix, seen):
+                yield item
+
+
+def wordlist_to_graph_file(wordlist, dbfile):
+    """Writes a word graph file from a list of words.
+    
+    >>> # Open a dictionary file with one word on each line
+    >>> dictfile = open("mywords.txt")
+    >>> # Write the words to a word graph file
+    >>> wordlist_to_graph_file(dictfile, "mywords.dawg")
+    
+    :param wordlist: an iterable containing the words for the graph. The words
+        must be in sorted order.
+    :param dbfile: a filename string or file-like object to write the word
+        graph to. If you pass a file-like object, it will be closed when the
+        function completes.
+    """
+    
+    from whoosh.filedb.structfile import StructFile
+    
+    dw = dawg.DawgBuilder()
+    for word in wordlist:
+        dw.insert(word)
+    
+    if isinstance(dbfile, basestring):
+        dbfile = open(dbfile, "wb")
+    if not isinstance(dbfile, StructFile):
+        dbfile = StructFile(dbfile)
+    dw.write(dbfile)
+    dbfile.close()
+
+
+# Old, obsolete spell checker - DO NOT USE
 
 class SpellChecker(object):
-    """Implements a spell-checking engine using a search index for the backend
-    storage and lookup. This class is based on the Lucene contributed spell-
-    checker code.
-    
-    To use this object::
-    
-        st = store.FileStorage("spelldict")
-        sp = SpellChecker(st)
-        
-        sp.add_words([u"aardvark", u"manticore", u"zebra", ...])
-        # or
-        ix = index.open_dir("index")
-        sp.add_field(ix, "content")
-        
-        suggestions = sp.suggest(u"ardvark", number = 2)
+    """This feature is obsolete.
     """
 
     def __init__(self, storage, indexname="SPELL",
