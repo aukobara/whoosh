@@ -815,7 +815,7 @@ class Collector(object):
     
     def should_add_all(self):
         """Returns True if this collector needs to add all found documents (for
-        example, if ``limit=None``), or alse if this collector should only
+        example, if ``limit=None``), or False if this collector should only
         add the top N found documents.
         """
         
@@ -1048,7 +1048,11 @@ class Collector(object):
 
 
 class TermTrackingCollector(Collector):
-    """This collector records which parts of the query matched which documents
+    """This is an experiment. For a more straightforward but possibly slightly
+    slower method for determining if a given term was found, see
+    :meth:`Results.contains_term`.
+    
+    This collector records which parts of the query matched which documents
     in the final results. The results for each part of the query are available
     as a dictionary in the ``catalog`` attribute of the collector after the
     search, where the keys are representations of the parts of the query and
