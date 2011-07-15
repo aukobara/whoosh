@@ -1,6 +1,6 @@
 from __future__ import print_function
 
-from nose.tools import assert_equal, assert_not_equal  #@UnresolvedImport
+from nose.tools import assert_equal  #@UnresolvedImport
 
 from whoosh import analysis, fields, query
 from whoosh.compat import u, text_type
@@ -413,7 +413,7 @@ def test_star():
     q = qp.parse(u("*"))
     assert_equal(q.__class__, query.Every)
     assert_equal(q.fieldname, "text")
-    
+
     q = qp.parse(u("*h?ll*"))
     assert_equal(q.__class__, query.Wildcard)
     assert_equal(q.text, "*h?ll*")
