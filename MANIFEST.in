@@ -1,0 +1,7 @@
+include *.txt
+include benchmark/dcvgr10.txt.gz
+recursive-include tests *.txt *.py
+recursive-include benchmark *.txt *.py
+recursive-include docs *.txt *.py *.rst
+recursive-include files *.txt *.py *.png *.jpg *.svg
+
