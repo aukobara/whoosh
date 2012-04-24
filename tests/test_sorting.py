@@ -2,7 +2,7 @@ from __future__ import with_statement
 from datetime import datetime, timedelta
 import random
 
-from nose.tools import assert_equal  #@UnresolvedImport
+from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import fields, query, sorting
 from whoosh.compat import u, xrange, long_type
@@ -26,7 +26,9 @@ else:
             with ix.searcher() as s:
                 r = s.search(query.Every(), sortedby="key", limit=None)
                 result = "".join([h["key"] for h in r])
-                assert_equal(result, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+                assert_equal(result,
+                             "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+                             "abcdefghijklmnopqrstuvwxyz")
 
 
 docs = ({"id": u("zulu"), "num": 100, "tag": u("one"), "frac": 0.75},
@@ -42,6 +44,7 @@ docs = ({"id": u("zulu"), "num": 100, "tag": u("one"), "frac": 0.75},
         {"id": u("bravo"), "num": 582045, "tag": u("three"), "frac": 1.25},
         )
 
+
 def get_schema():
     return fields.Schema(id=fields.ID(stored=True),
                          num=fields.NUMERIC(stored=True),
@@ -50,11 +53,13 @@ def get_schema():
                          ev=fields.ID,
                          )
 
+
 def make_single_index(ix):
     w = ix.writer()
     for doc in docs:
         w.add_document(ev=u("a"), **doc)
     w.commit()
+
 
 def make_multi_index(ix):
     for i in xrange(0, len(docs), 3):
@@ -63,8 +68,10 @@ def make_multi_index(ix):
             w.add_document(ev=u("a"), **doc)
         w.commit(merge=False)
 
+
 def try_sort(sortedby, key, q=None, limit=None, reverse=False):
-    if q is None: q = query.Term("ev", u("a"))
+    if q is None:
+        q = query.Term("ev", u("a"))
 
     correct = [d["id"] for d in sorted(docs, key=key, reverse=reverse)][:limit]
 
@@ -72,7 +79,8 @@ def try_sort(sortedby, key, q=None, limit=None, reverse=False):
         with TempIndex(get_schema()) as ix:
             fn(ix)
             with ix.searcher() as s:
-                r = s.search(q, sortedby=sortedby, limit=limit, reverse=reverse)
+                r = s.search(q, sortedby=sortedby, limit=limit,
+                             reverse=reverse)
                 rids = [d["id"] for d in r]
                 assert_equal(rids, correct)
 
@@ -89,9 +97,9 @@ def test_cached_lexicon():
 
         with ix.reader() as r:
             _ = r.fieldcache("tag")
-            assert_equal(list(r.lexicon("tag")), ["alfa", "juliet", "romeo", "sierra"])
+            assert_equal(list(r.lexicon("tag")),
+                         ["alfa", "juliet", "romeo", "sierra"])
 
-# 
 
 def test_persistent_cache():
     schema = fields.Schema(id=fields.ID(stored=True))
@@ -113,8 +121,9 @@ def test_persistent_cache():
         fc = r.fieldcache("id")
         assert r.fieldcache_loaded("id")
         assert_equal(list(fc.order), [3, 1, 5, 2, 4])
-        assert_equal(list(fc.texts), [u('\uffff'), u'alfa', u'bravo',
-                                      u'charlie', u'delta', u'echo'])
+        assert_equal(list(fc.texts), [u('\uffff'), 'alfa', 'bravo',
+                                      'charlie', 'delta', 'echo'])
+
 
 def test_float_cache():
     schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(type=float))
@@ -138,8 +147,10 @@ def test_float_cache():
             assert_equal(fc.typecode, "f")
             assert_equal(list(fc.order), [1.5, -8.25, 0.75])
 
+
 def test_long_cache():
-    schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC(type=long_type))
+    schema = fields.Schema(id=fields.STORED,
+                           num=fields.NUMERIC(type=long_type))
     with TempIndex(schema, "longcache") as ix:
         w = ix.writer()
         w.add_document(id=1, num=2858205080241)
@@ -158,7 +169,9 @@ def test_long_cache():
             assert not fc.hastexts
             assert_equal(fc.texts, None)
             assert_equal(fc.typecode, "q")
-            assert_equal(list(fc.order), [2858205080241, -3572050858202, 4985020582043])
+            assert_equal(list(fc.order),
+                         [2858205080241, -3572050858202, 4985020582043])
+
 
 def test_shared_cache():
     with TempIndex(get_schema(), "sharedcache") as ix:
@@ -183,12 +196,14 @@ def test_shared_cache():
         assert not r3.fieldcache_loaded("id")
         r3.close()
 
+
 @skip_if_unavailable("multiprocessing")
 @skip_if(lambda: True)
 def test_mp_fieldcache():
     schema = fields.Schema(key=fields.KEYWORD(stored=True))
     with TempIndex(schema, "mpfieldcache") as ix:
-        domain = list(u("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+        domain = list(u("abcdefghijklmnopqrstuvwxyz"
+                        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
         random.shuffle(domain)
         w = ix.writer()
         for char in domain:
@@ -201,11 +216,13 @@ def test_mp_fieldcache():
         for task in tasks:
             task.join()
 
+
 def test_sortedby():
     try_sort("id", lambda d: d["id"])
     try_sort("id", lambda d: d["id"], limit=5)
     try_sort("id", lambda d: d["id"], reverse=True)
     try_sort("id", lambda d: d["id"], limit=5, reverse=True)
+
 
 def test_multisort():
     mf = sorting.MultiFacet(["tag", "id"])
@@ -214,11 +231,13 @@ def test_multisort():
     try_sort(mf, lambda d: (d["tag"], d["id"]), limit=5)
     try_sort(mf, lambda d: (d["tag"], d["id"]), reverse=True, limit=5)
 
+
 def test_numeric():
     try_sort("num", lambda d: d["num"])
     try_sort("num", lambda d: d["num"], reverse=True)
     try_sort("num", lambda d: d["num"], limit=5)
     try_sort("frac", lambda d: d["frac"])
+
 
 def test_empty_field():
     schema = fields.Schema(id=fields.STORED, key=fields.KEYWORD)
@@ -232,6 +251,7 @@ def test_empty_field():
         with ix.searcher() as s:
             r = s.search(query.Every(), sortedby="key")
             assert_equal([h["id"] for h in r], [1, 2, 3])
+
 
 def test_page_sorted():
     schema = fields.Schema(key=fields.ID(stored=True))
@@ -253,12 +273,15 @@ def test_page_sorted():
             assert_equal("".join([h["key"] for h in rp]), "abcde")
             assert_equal(rp[10:], [])
 
-            rp = s.search_page(query.Term("key", "glonk"), 1, pagelen=5, sortedby="key")
+            rp = s.search_page(query.Term("key", "glonk"), 1, pagelen=5,
+                               sortedby="key")
             assert_equal(len(rp), 0)
             assert rp.is_last_page()
 
+
 def test_score_facet():
-    schema = fields.Schema(id=fields.STORED, a=fields.TEXT, b=fields.TEXT, c=fields.ID)
+    schema = fields.Schema(id=fields.STORED, a=fields.TEXT, b=fields.TEXT,
+                           c=fields.ID)
     ix = RamStorage().create_index(schema)
     w = ix.writer()
     w.add_document(id=1, a=u("alfa alfa bravo"), b=u("bottle"), c=u("c"))
@@ -278,8 +301,10 @@ def test_score_facet():
         r = s.search(q=query.Term("a", u("alfa")), sortedby=facet)
         assert_equal([h["id"] for h in r], [6, 4, 5, 2, 1, 3])
 
+
 def test_function_facet():
-    schema = fields.Schema(id=fields.STORED, text=fields.TEXT(stored=True, vector=True))
+    schema = fields.Schema(id=fields.STORED,
+                           text=fields.TEXT(stored=True, vector=True))
     ix = RamStorage().create_index(schema)
     w = ix.writer()
     domain = ("alfa", "bravo", "charlie")
@@ -288,7 +313,8 @@ def test_function_facet():
         for w2 in domain:
             for w3 in domain:
                 for w4 in domain:
-                    w.add_document(id=count, text=u(" ").join((w1, w2, w3, w4)))
+                    w.add_document(id=count,
+                                   text=u(" ").join((w1, w2, w3, w4)))
                     count += 1
     w.commit()
 
@@ -299,7 +325,8 @@ def test_function_facet():
         return 0 - (1.0 / (abs(v.get("alfa", 0) - v.get("bravo", 0)) + 1.0))
 
     with ix.searcher() as s:
-        q = query.And([query.Term("text", u("alfa")), query.Term("text", u("bravo"))])
+        q = query.And([query.Term("text", u("alfa")),
+                       query.Term("text", u("bravo"))])
 
         fnfacet = sorting.FunctionFacet(fn)
         r = s.search(q, sortedby=fnfacet)
@@ -308,8 +335,10 @@ def test_function_facet():
             tks = t.split()
             assert_equal(tks.count("alfa"), tks.count("bravo"))
 
+
 def test_numeric_field_facet():
-    schema = fields.Schema(id=fields.STORED, v1=fields.NUMERIC, v2=fields.NUMERIC)
+    schema = fields.Schema(id=fields.STORED, v1=fields.NUMERIC,
+                           v2=fields.NUMERIC)
     ix = RamStorage().create_index(schema)
     w = ix.writer()
     w.add_document(id=1, v1=2, v2=100)
@@ -328,6 +357,7 @@ def test_numeric_field_facet():
         mf = sorting.MultiFacet().add_field("v1").add_field("v2", reverse=True)
         r = s.search(query.Every(), sortedby=mf)
         assert_equal([hit["id"] for hit in r], [6, 4, 2, 3, 1, 5])
+
 
 def test_query_facet():
     schema = fields.Schema(id=fields.STORED, v=fields.ID)
@@ -354,6 +384,7 @@ def test_query_facet():
                                          "d-f": [5, 7, 8],
                                          "g-i": [0, 3, 6]})
 
+
 def test_query_facet2():
     domain = u("abcdefghi")
     schema = fields.Schema(v=fields.KEYWORD(stored=True))
@@ -369,11 +400,13 @@ def test_query_facet2():
         q3 = query.TermRange("v", "g", "i")
 
         facets = sorting.Facets()
-        facets.add_query("myfacet", {"a-c": q1, "d-f": q2, "g-i": q3}, allow_overlap=True)
+        facets.add_query("myfacet", {"a-c": q1, "d-f": q2, "g-i": q3},
+                         allow_overlap=True)
         r = s.search(query.Every(), groupedby=facets)
         assert_equal(r.groups("myfacet"), {'a-c': [0, 1, 2, 7, 8],
                                            'd-f': [4, 5],
                                            'g-i': [3, 6]})
+
 
 def test_missing_field_facet():
     schema = fields.Schema(id=fields.STORED, tag=fields.ID)
@@ -388,7 +421,9 @@ def test_missing_field_facet():
 
     with ix.searcher() as s:
         r = s.search(query.Every(), groupedby="tag")
-        assert_equal(r.groups("tag"), {None: [2, 4], 'bravo': [3], 'alfa': [0, 1]})
+        assert_equal(r.groups("tag"),
+                     {None: [2, 4], 'bravo': [3], 'alfa': [0, 1]})
+
 
 def test_missing_numeric_facet():
     schema = fields.Schema(id=fields.STORED, tag=fields.NUMERIC)
@@ -404,6 +439,7 @@ def test_missing_numeric_facet():
     with ix.searcher() as s:
         r = s.search(query.Every(), groupedby="tag")
         assert_equal(r.groups("tag"), {None: [2, 4], 0: [3], 1: [0, 1]})
+
 
 def test_date_facet():
     schema = fields.Schema(id=fields.STORED, date=fields.DATETIME)
@@ -421,6 +457,7 @@ def test_date_facet():
     with ix.searcher() as s:
         r = s.search(query.Every(), groupedby="date")
         assert_equal(r.groups("date"), {d1: [0, 1], d2: [3], None: [2, 4]})
+
 
 def test_range_facet():
     schema = fields.Schema(id=fields.STORED, price=fields.NUMERIC)
@@ -441,6 +478,7 @@ def test_range_facet():
                                          (200, 300): [0], (500, 600): [4],
                                          None: [2]})
 
+
 def test_range_gaps():
     schema = fields.Schema(id=fields.STORED, num=fields.NUMERIC)
     ix = RamStorage().create_index(schema)
@@ -457,6 +495,7 @@ def test_range_gaps():
                                        (3, 6): [3, 4, 5],
                                        (6, 9): [6, 7, 8],
                                        (9, 12): [9]})
+
 
 def test_daterange_facet():
     schema = fields.Schema(id=fields.STORED, date=fields.DATETIME)
@@ -475,10 +514,12 @@ def test_daterange_facet():
                                     datetime(2001, 1, 20), timedelta(days=5))
         r = s.search(query.Every(), groupedby={"date": rf})
         dt = datetime
-        assert_equal(r.groups("date"), {(dt(2001, 1, 1, 0, 0), dt(2001, 1, 6, 0, 0)): [3],
-                                        (dt(2001, 1, 6, 0, 0), dt(2001, 1, 11, 0, 0)): [1, 4, 5],
-                                        (dt(2001, 1, 11, 0, 0), dt(2001, 1, 16, 0, 0)): [0],
-                                        None: [2]})
+        assert_equal(r.groups("date"),
+                     {(dt(2001, 1, 1, 0, 0), dt(2001, 1, 6, 0, 0)): [3],
+                      (dt(2001, 1, 6, 0, 0), dt(2001, 1, 11, 0, 0)): [1, 4, 5],
+                      (dt(2001, 1, 11, 0, 0), dt(2001, 1, 16, 0, 0)): [0],
+                      None: [2]})
+
 
 def test_relative_daterange():
     from whoosh.support.relativedelta import relativedelta
@@ -496,20 +537,23 @@ def test_relative_daterange():
 
     with ix.searcher() as s:
         gap = relativedelta(months=1)
-        rf = sorting.DateRangeFacet("date", dt(2001, 1, 1), dt(2001, 12, 31), gap)
+        rf = sorting.DateRangeFacet("date", dt(2001, 1, 1),
+                                    dt(2001, 12, 31), gap)
         r = s.search(query.Every(), groupedby={"date": rf})
-        assert_equal(r.groups("date"), {(dt(2001, 1, 1), dt(2001, 2, 1)): [0, 1, 2],
-                                        (dt(2001, 2, 1), dt(2001, 3, 1)): [3, 4],
-                                        (dt(2001, 3, 1), dt(2001, 4, 1)): [5, 6],
-                                        (dt(2001, 4, 1), dt(2001, 5, 1)): [7, 8],
-                                        (dt(2001, 5, 1), dt(2001, 6, 1)): [9, 10],
-                                        (dt(2001, 6, 1), dt(2001, 7, 1)): [11, 12],
-                                        (dt(2001, 7, 1), dt(2001, 8, 1)): [13, 14],
-                                        (dt(2001, 8, 1), dt(2001, 9, 1)): [15, 16],
-                                        (dt(2001, 9, 1), dt(2001, 10, 1)): [17, 18],
-                                        (dt(2001, 10, 1), dt(2001, 11, 1)): [19, 20],
-                                        (dt(2001, 11, 1), dt(2001, 12, 1)): [21, 22],
-                                        })
+        assert_equal(r.groups("date"),
+                     {(dt(2001, 1, 1), dt(2001, 2, 1)): [0, 1, 2],
+                      (dt(2001, 2, 1), dt(2001, 3, 1)): [3, 4],
+                      (dt(2001, 3, 1), dt(2001, 4, 1)): [5, 6],
+                      (dt(2001, 4, 1), dt(2001, 5, 1)): [7, 8],
+                      (dt(2001, 5, 1), dt(2001, 6, 1)): [9, 10],
+                      (dt(2001, 6, 1), dt(2001, 7, 1)): [11, 12],
+                      (dt(2001, 7, 1), dt(2001, 8, 1)): [13, 14],
+                      (dt(2001, 8, 1), dt(2001, 9, 1)): [15, 16],
+                      (dt(2001, 9, 1), dt(2001, 10, 1)): [17, 18],
+                      (dt(2001, 10, 1), dt(2001, 11, 1)): [19, 20],
+                      (dt(2001, 11, 1), dt(2001, 12, 1)): [21, 22],
+                      })
+
 
 def test_overlapping_facet():
     schema = fields.Schema(id=fields.STORED, tags=fields.KEYWORD)
@@ -524,16 +568,19 @@ def test_overlapping_facet():
     with ix.searcher() as s:
         of = sorting.FieldFacet("tags", allow_overlap=True)
         r = s.search(query.Every(), groupedby={"tags": of})
-        assert_equal(r.groups("tags"), {'alfa': [0, 3, 4], 'bravo': [0, 1, 4],
-                                        'charlie': [0, 1, 2], 'delta': [1, 2, 3],
-                                        'echo': [2, 3, 4]})
+        assert_equal(r.groups("tags"),
+                     {'alfa': [0, 3, 4], 'bravo': [0, 1, 4],
+                      'charlie': [0, 1, 2], 'delta': [1, 2, 3],
+                      'echo': [2, 3, 4]})
 
         fcts = sorting.Facets()
         fcts.add_field("tags", allow_overlap=True)
         r = s.search(query.Every(), groupedby=fcts)
-        assert_equal(r.groups("tags"), {'alfa': [0, 3, 4], 'bravo': [0, 1, 4],
-                                        'charlie': [0, 1, 2], 'delta': [1, 2, 3],
-                                        'echo': [2, 3, 4]})
+        assert_equal(r.groups("tags"),
+                     {'alfa': [0, 3, 4], 'bravo': [0, 1, 4],
+                      'charlie': [0, 1, 2], 'delta': [1, 2, 3],
+                      'echo': [2, 3, 4]})
+
 
 def test_field_facets():
     def check(method):
@@ -550,35 +597,6 @@ def test_field_facets():
     check(make_single_index)
     check(make_multi_index)
 
-#def test_define_facets():
-#    schema = fields.Schema(value=fields.ID(stored=True))
-#    with TempIndex(schema, "queryfacets") as ix:
-#        w = ix.writer()
-#        alphabet = list(u("abcdefghijklmnopqrstuvwxyz"))
-#        random.shuffle(alphabet)
-#        
-#        for letter in alphabet:
-#            w.add_document(value=letter)
-#        w.commit()
-#        
-#        with ix.searcher() as s:
-#            q1 = query.TermRange("value", u("a"), u("i"))
-#            q2 = query.TermRange("value", u("j"), u("r"))
-#            q3 = query.TermRange("value", u("s"), u("z"))
-#            qfacet = sorting.QueryFacet({"a-i": q1, "j-r": q2, "s-z": q3})
-#            s.define_facets("range", qfacet, save=False)
-#            
-#            def check(groups):
-#                for key in groups.keys():
-#                    groups[key] = "".join(sorted([s.stored_fields(id)["value"]
-#                                                  for id in groups[key]]))
-#                assert_equal(groups, {'a-i': u('abcdefghi'), 'j-r': u('jklmnopqr'),
-#                                      's-z': u('stuvwxyz')})
-#            
-#            check(s.search(query.Every(), groupedby="range").groups("range"))
-#
-#        with ix.searcher() as s:
-#            assert not s.reader().fieldcache_available("range")
 
 def test_multifacet():
     schema = fields.Schema(tag=fields.ID(stored=True),
@@ -593,18 +611,22 @@ def test_multifacet():
         w.add_document(tag=u("bravo"), size=u("medium"))
         w.commit()
 
-        correct = {(u('bravo'), u('medium')): [1, 5], (u('alfa'), u('large')): [2],
-                   (u('alfa'), u('medium')): [4], (u('alfa'), u('small')): [0],
+        correct = {(u('bravo'), u('medium')): [1, 5],
+                   (u('alfa'), u('large')): [2],
+                   (u('alfa'), u('medium')): [4],
+                   (u('alfa'), u('small')): [0],
                    (u('bravo'), u('small')): [3]}
 
         with ix.searcher() as s:
             facet = sorting.MultiFacet(["tag", "size"])
-            r = s.search(query.Every(), groupedby={"tag/size" : facet})
+            r = s.search(query.Every(), groupedby={"tag/size": facet})
             cats = r.groups(("tag/size"))
             assert_equal(cats, correct)
 
+
 def test_sort_filter():
-    schema = fields.Schema(group=fields.ID(stored=True), key=fields.ID(stored=True))
+    schema = fields.Schema(group=fields.ID(stored=True),
+                           key=fields.ID(stored=True))
     groups = u("alfa bravo charlie").split()
     keys = u("abcdefghijklmnopqrstuvwxyz")
     source = []
@@ -614,7 +636,7 @@ def test_sort_filter():
         source.append({"key": key, "group": group})
     source.sort(key=lambda x: (x["key"], x["group"]))
 
-    sample = source[:]
+    sample = list(source)
     random.shuffle(sample)
 
     with TempIndex(schema, "sortfilter") as ix:
@@ -630,26 +652,31 @@ def test_sort_filter():
         fq = query.Term("group", u("bravo"))
 
         with ix.searcher() as s:
-            r = s.search(query.Every(), sortedby=("key", "group"), filter=fq, limit=20)
+            r = s.search(query.Every(), sortedby=("key", "group"), filter=fq,
+                         limit=20)
             assert_equal([h.fields() for h in r],
                          [d for d in source if d["group"] == "bravo"][:20])
 
             fq = query.Term("group", u("bravo"))
-            r = s.search(query.Every(), sortedby=("key", "group"), filter=fq, limit=None)
+            r = s.search(query.Every(), sortedby=("key", "group"), filter=fq,
+                         limit=None)
             assert_equal([h.fields() for h in r],
                          [d for d in source if d["group"] == "bravo"])
 
         ix.optimize()
 
         with ix.searcher() as s:
-            r = s.search(query.Every(), sortedby=("key", "group"), filter=fq, limit=20)
+            r = s.search(query.Every(), sortedby=("key", "group"), filter=fq,
+                         limit=20)
             assert_equal([h.fields() for h in r],
                          [d for d in source if d["group"] == "bravo"][:20])
 
             fq = query.Term("group", u("bravo"))
-            r = s.search(query.Every(), sortedby=("key", "group"), filter=fq, limit=None)
+            r = s.search(query.Every(), sortedby=("key", "group"), filter=fq,
+                         limit=None)
             assert_equal([h.fields() for h in r],
                          [d for d in source if d["group"] == "bravo"])
+
 
 def test_custom_sort():
     schema = fields.Schema(name=fields.ID(stored=True),
@@ -657,14 +684,13 @@ def test_custom_sort():
                            quant=fields.NUMERIC)
 
     with TempIndex(schema, "customsort") as ix:
-        w = ix.writer()
-        w.add_document(name=u("A"), price=200, quant=9)
-        w.add_document(name=u("E"), price=300, quant=4)
-        w.add_document(name=u("F"), price=200, quant=8)
-        w.add_document(name=u("D"), price=150, quant=5)
-        w.add_document(name=u("B"), price=250, quant=11)
-        w.add_document(name=u("C"), price=200, quant=10)
-        w.commit()
+        with ix.writer() as w:
+            w.add_document(name=u("A"), price=200, quant=9)
+            w.add_document(name=u("E"), price=300, quant=4)
+            w.add_document(name=u("F"), price=200, quant=8)
+            w.add_document(name=u("D"), price=150, quant=5)
+            w.add_document(name=u("B"), price=250, quant=11)
+            w.add_document(name=u("C"), price=200, quant=10)
 
         with ix.searcher() as s:
             cs = s.sorter()
@@ -673,8 +699,10 @@ def test_custom_sort():
             r = cs.sort_query(query.Every(), limit=None)
             assert_equal([hit["name"] for hit in r], list(u("DCAFBE")))
 
+
 def test_sorting_function():
-    schema = fields.Schema(id=fields.STORED, text=fields.TEXT(stored=True, vector=True))
+    schema = fields.Schema(id=fields.STORED,
+                           text=fields.TEXT(stored=True, vector=True))
     ix = RamStorage().create_index(schema)
     w = ix.writer()
     domain = ("alfa", "bravo", "charlie")
@@ -683,7 +711,8 @@ def test_sorting_function():
         for w2 in domain:
             for w3 in domain:
                 for w4 in domain:
-                    w.add_document(id=count, text=u(" ").join((w1, w2, w3, w4)))
+                    w.add_document(id=count,
+                                   text=u(" ").join((w1, w2, w3, w4)))
                     count += 1
     w.commit()
 
@@ -695,12 +724,14 @@ def test_sorting_function():
     fnfacet = sorting.FunctionFacet(fn)
 
     with ix.searcher() as s:
-        q = query.And([query.Term("text", u("alfa")), query.Term("text", u("bravo"))])
+        q = query.And([query.Term("text", u("alfa")),
+                       query.Term("text", u("bravo"))])
         results = s.search(q, sortedby=fnfacet)
         r = [hit["text"] for hit in results]
         for t in r[:10]:
             tks = t.split()
             assert_equal(tks.count("alfa"), tks.count("bravo"))
+
 
 def test_sorted_groups():
     schema = fields.Schema(a=fields.STORED, b=fields.TEXT, c=fields.ID)
@@ -720,6 +751,7 @@ def test_sorted_groups():
         assert_equal(gs["apple"], [4, 2, 0])
         assert_equal(gs["bear"], [5, 3, 1])
 
+
 def test_group_types():
     schema = fields.Schema(a=fields.STORED, b=fields.TEXT, c=fields.ID)
     ix = RamStorage().create_index(schema)
@@ -730,7 +762,8 @@ def test_group_types():
         w.add_document(a=3, b=u("blah blah blah blah"), c=u("bear"))
         w.add_document(a=4, b=u("blah blah blah blah blah"), c=u("apple"))
         w.add_document(a=5, b=u("blah blah blah blah blah blah"), c=u("bear"))
-        w.add_document(a=6, b=u("blah blah blah blah blah blah blah"), c=u("apple"))
+        w.add_document(a=6, b=u("blah blah blah blah blah blah blah"),
+                       c=u("apple"))
 
     with ix.searcher() as s:
         q = query.Term("b", "blah")
@@ -757,6 +790,105 @@ def test_group_types():
         gs = r.groups()
         assert_equal(gs["apple"], 4)
         assert_equal(gs["bear"], 3)
+
+
+def test_nocachefield_segments():
+    schema = fields.Schema(a=fields.ID(stored=True))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(a=u("bravo"))
+    w.add_document(a=u("echo"))
+    w.add_document(a=u("juliet"))
+    w.commit()
+    w = ix.writer()
+    w.add_document(a=u("kilo"))
+    w.add_document(a=u("foxtrot"))
+    w.add_document(a=u("charlie"))
+    w.commit(merge=False)
+    w = ix.writer()
+    w.delete_by_term("a", u("echo"))
+    w.add_document(a=u("alfa"))
+    w.add_document(a=u("india"))
+    w.add_document(a=u("delta"))
+    w.commit(merge=False)
+
+    with ix.searcher() as s:
+        q = query.TermRange("a", u("bravo"), u("k"))
+        facet = sorting.FieldFacet("a", reverse=True)
+
+        cat = facet.categorizer(s)
+        assert_equal(cat.__class__, sorting.FieldFacet.NoCacheFieldCategorizer)
+
+        r = s.search(q, sortedby=facet)
+        assert_equal([hit["a"] for hit in r],
+                     ["juliet", "india", "foxtrot", "delta", "charlie",
+                      "bravo"])
+
+        mq = query.Or([query.Term("a", u("bravo")),
+                       query.Term("a", u("delta"))])
+        anq = query.AndNot(q, mq)
+        r = s.search(anq, sortedby=facet)
+        assert_equal([hit["a"] for hit in r],
+                     ["juliet", "india", "foxtrot", "charlie"])
+
+        mq = query.Or([query.Term("a", u("bravo")),
+                       query.Term("a", u("delta"))])
+        r = s.search(q, mask=mq, sortedby=facet)
+        assert_equal([hit["a"] for hit in r],
+                     ["juliet", "india", "foxtrot", "charlie"])
+
+        fq = query.Or([query.Term("a", u("alfa")),
+                       query.Term("a", u("charlie")),
+                       query.Term("a", u("echo")),
+                       query.Term("a", u("india")),
+                       ])
+        r = s.search(query.Every(), filter=fq, sortedby=facet)
+        assert_equal([hit["a"] for hit in r],
+                     ["india", "charlie", "alfa"])
+
+        nq = query.Not(query.Or([query.Term("a", u("alfa")),
+                                 query.Term("a", u("india"))]))
+        r = s.search(query.Every(), filter=nq, sortedby=facet)
+        assert_equal([hit["a"] for hit in r],
+                     ["kilo", "juliet", "foxtrot", "delta", "charlie",
+                      "bravo"])
+
+
+def test_groupby_phrase():
+    domain = {"Alan Ball": "Tel Aviv", "Alan Charles": "San Francisco",
+              "Alan Darwin": "London", "Alan Eames": "Paris"}
+
+    schema = fields.Schema(name=fields.TEXT(stored=True),
+                           city=fields.TEXT(stored=True),
+                           city_g=fields.ID(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        for name, city in domain.items():
+            w.add_document(name=u(name), city=u(city), city_g=u(city))
+
+    with ix.searcher() as s:
+        q = query.Term("name", "alan")
+        r = s.search(q, groupedby="city_g")
+        keys = sorted([str(x) for x in r.groups().keys()])
+        assert_equal(keys, ["London", "Paris", "San Francisco", "Tel Aviv"])
+
+        sff = sorting.StoredFieldFacet("city")
+        r = s.search(q, groupedby=sff)
+        keys = sorted([str(x) for x in r.groups().keys()])
+        assert_equal(keys, ["London", "Paris", "San Francisco", "Tel Aviv"])
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
