@@ -32,7 +32,8 @@ from math import log
 from bisect import bisect_left, bisect_right
 from heapq import heapify, heapreplace, heappop, nlargest
 
-from whoosh import columns, fst, scoring
+from whoosh import columns, scoring
+from whoosh.automata import fst
 from whoosh.compat import abstractmethod
 from whoosh.compat import xrange, zip_, next, iteritems
 from whoosh.filedb.filestore import OverlayStorage
@@ -590,7 +591,7 @@ class SegmentReader(IndexReader):
 
         # self.files is a storage object from which to load the segment files.
         # This is different from the general storage (which will be used for
-        # cahces) if the segment is in a compound file.
+        # caches) if the segment is in a compound file.
         if segment.is_compound():
             # Open the compound file as a storage object
             files = segment.open_compound_file(storage)
@@ -810,7 +811,7 @@ class SegmentReader(IndexReader):
                                             prefix=prefix)
         gr = self._get_graph()
         return fst.within(gr, text, k=maxdist, prefix=prefix,
-                           address=self._graph.root(fieldname))
+                          address=self._graph.root(fieldname))
 
     # Column methods
 
@@ -818,13 +819,19 @@ class SegmentReader(IndexReader):
         coltype = self.schema[fieldname].column_type
         return coltype and self._perdoc.has_column(fieldname)
 
-    def column_reader(self, fieldname, column=None):
+    def column_reader(self, fieldname, column=None, translate=True):
         fieldobj = self.schema[fieldname]
-        column = column or fieldobj.column_type
-        reader = self._perdoc.column_reader(fieldname, column)
+        if not self.has_column(fieldname):
+            raise Exception("No column for field %r" % fieldname)
 
-        translate = fieldobj.from_column_value
-        creader = columns.TranslatingColumnReader(reader, translate)
+        ctype = column or fieldobj.column_type
+        creader = self._perdoc.column_reader(fieldname, ctype)
+        if translate:
+            # Wrap the column in a Translator to give the caller
+            # nice values instead of sortable representations
+            fcv = fieldobj.from_column_value
+            creader = columns.TranslatingColumnReader(creader, fcv)
+
         return creader
 
 
@@ -849,10 +856,10 @@ class EmptyReader(IndexReader):
     def iter_from(self, fieldname, text):
         return iter([])
 
-    def iter_field(self, fieldname):
+    def iter_field(self, fieldname, prefix=''):
         return iter([])
 
-    def iter_prefix(self, fieldname):
+    def iter_prefix(self, fieldname, prefix=''):
         return iter([])
 
     def lexicon(self, fieldname):
@@ -1158,7 +1165,7 @@ class MultiReader(IndexReader):
         return any(r.has_word_graph(fieldname) for r in self.readers)
 
     def word_graph(self, fieldname):
-        from whoosh.fst import UnionNode
+        from whoosh.automata.fst import UnionNode
         from whoosh.util import make_binary_tree
 
         if not self.has_word_graph(fieldname):
@@ -1184,17 +1191,18 @@ class MultiReader(IndexReader):
     def has_column(self, fieldname):
         return any(r.has_column(fieldname) for r in self.readers)
 
-    def column_reader(self, fieldname):
+    def column_reader(self, fieldname, translate=True):
         column = self.schema[fieldname].column_type
         if not column:
             raise Exception("Field %r has no column type" % (fieldname,))
+
         default = column.default_value()
         doccount = self.doc_count_all()
 
         creaders = []
         for r in self.readers:
             if r.has_column(fieldname):
-                creaders.append(r.column_reader(fieldname))
+                creaders.append(r.column_reader(fieldname, translate=translate))
             else:
                 creaders.append(columns.EmptyColumnReader(default, doccount))
 

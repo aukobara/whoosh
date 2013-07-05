@@ -122,6 +122,8 @@ class Searcher(object):
         self._closereader = closereader
         self._ix = fromindex
         self._doccount = self.ixreader.doc_count_all()
+        # Cache for PostingCategorizer objects (supports fields without columns)
+        self._field_caches = {}
 
         if parent:
             self.parent = weakref.ref(parent)
@@ -1164,8 +1166,9 @@ class Results(object):
         """
         return self.top_n[n][1]
 
-    def query_terms(self, expand=False):
-        return self.q.existing_terms(self.searcher.reader(), expand=expand)
+    def query_terms(self, expand=False, fieldname=None):
+        return self.q.existing_terms(self.searcher.reader(),
+                                     fieldname=fieldname, expand=expand)
 
     def has_matched_terms(self):
         """Returns True if the search recorded which terms matched in which

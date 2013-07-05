@@ -25,6 +25,27 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+"""
+The API and implementation of columns may change in the next version of Whoosh!
+
+This module contains "Column" objects which you can use as the argument to a
+Field object's ``sortable=`` keyword argument. Each field defines a default
+column type for when the user specifies ``sortable=True`` (the object returned
+by the field's ``default_column()`` method).
+
+The default column type for most fields is ``VarBytesColumn``,
+although numeric and date fields use ``NumericColumn``. Expert users may use
+other field types that may be faster or more storage efficient based on the
+field contents. For example, if a field always contains one of a limited number
+of possible values, a ``RefBytesColumn`` will save space by only storing the
+values once. If a field's values are always a fixed length, the
+``FixedBytesColumn`` saves space by not storing the length of each value.
+
+A ``Column`` object basically exists to store configuration information and
+provides two important methods: ``writer()`` to return a ``ColumnWriter`` object
+and ``reader()`` to return a ``ColumnReader`` object.
+"""
+
 from __future__ import division, with_statement
 import struct, warnings
 from array import array
@@ -40,11 +61,11 @@ from whoosh.compat import array_tobytes, xrange
 from whoosh.compat import dumps, loads
 from whoosh.filedb.structfile import StructFile
 from whoosh.idsets import BitSet, OnDiskBitSet
-from whoosh.system import emptybytes, _INT_SIZE
+from whoosh.system import emptybytes
 from whoosh.util.cache import lru_cache
 from whoosh.util.numeric import typecode_max, typecode_min
 from whoosh.util.numlists import GrowableArray
-from whoosh.util.varints import varint, varint_to_int
+from whoosh.util.varints import varint
 
 
 # Utility functions
@@ -684,6 +705,9 @@ class BitColumn(Column):
                 bitset = OnDiskBitSet(dbfile, basepos, length - 1)
             self._bitset = bitset
 
+        def id_set(self):
+            return self._bitset
+
         def __repr__(self):
             return "<Bit.Reader>"
 
@@ -1002,11 +1026,11 @@ class MultiColumnReader(ColumnReader):
             self._doccount += len(r)
 
     def _document_reader(self, docnum):
-        return max(0, bisect_right(self.doc_offsets, docnum) - 1)
+        return max(0, bisect_right(self._doc_offsets, docnum) - 1)
 
     def _reader_and_docnum(self, docnum):
         rnum = self._document_reader(docnum)
-        offset = self.doc_offsets[rnum]
+        offset = self._doc_offsets[rnum]
         return rnum, docnum - offset
 
     def __getitem__(self, docnum):

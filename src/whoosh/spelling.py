@@ -31,7 +31,8 @@
 from collections import defaultdict
 from heapq import heappush, heapreplace
 
-from whoosh import analysis, fields, fst, highlight, query, scoring
+from whoosh import analysis, fields, highlight, query, scoring
+from whoosh.automata import fst
 from whoosh.compat import xrange, string_type
 from whoosh.support.levenshtein import distance
 from whoosh.util.text import utf8encode
@@ -52,7 +53,7 @@ class Corrector(object):
             enough terms in the field within ``maxdist`` of the given word, the
             returned list will be shorter than this number.
         :param maxdist: the largest edit distance from the given word to look
-            at. Numbers higher than 2 are not very effective or efficient.
+            at. Values higher than 2 are not very effective or efficient.
         :param prefix: require suggestions to share a prefix of this length
             with the given word. This is often justifiable since most
             misspellings do not involve the first letter of the word. Using a
@@ -122,7 +123,7 @@ class ReaderCorrector(Corrector):
 
 class GraphCorrector(Corrector):
     """Suggests corrections based on the content of a raw
-    :class:`whoosh.fst.GraphReader` object.
+    :class:`whoosh.automata.fst.GraphReader` object.
 
     By default ranks suggestions based on the edit distance.
     """
