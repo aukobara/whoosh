@@ -52,6 +52,23 @@ Binary queries
 .. autoclass:: Otherwise
 
 
+Span queries
+============
+
+.. autoclass:: Span
+    :members:
+
+.. autoclass:: SpanQuery
+.. autoclass:: SpanFirst
+.. autoclass:: SpanNear
+.. autoclass:: SpanNear2
+.. autoclass:: SpanNot
+.. autoclass:: SpanOr
+.. autoclass:: SpanContains
+.. autoclass:: SpanBefore
+.. autoclass:: SpanCondition
+
+
 Special queries
 ===============
 
@@ -64,5 +81,3 @@ Exceptions
 ==========
 
 .. autoexception:: QueryError
-
-

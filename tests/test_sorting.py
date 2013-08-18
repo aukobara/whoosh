@@ -306,8 +306,32 @@ def test_missing_numeric_facet():
         assert r.groups("tag") == {None: [2, 4], 0: [3], 1: [0, 1]}
 
 
+def test_missing_overlap():
+    schema = fields.Schema(a=fields.NUMERIC(stored=True),
+                           b=fields.KEYWORD(stored=True))
+    ix = RamStorage().create_index(schema)
+    with ix.writer() as w:
+        w.add_document(a=0, b=u("one two"))
+        w.add_document(a=1)
+        w.add_document(a=2, b=u("two three"))
+        w.add_document(a=3)
+        w.add_document(a=4, b=u("three four"))
+
+    with ix.searcher() as s:
+        facet = sorting.FieldFacet("b", allow_overlap=True)
+        r = s.search(query.Every(), groupedby=facet)
+        target = {"one": [0], "two": [0, 2], "three": [2, 4],"four": [4],
+                  None: [1, 3]}
+        assert r.groups() == target
+
+
 def test_date_facet():
+    from whoosh import columns
+
     schema = fields.Schema(id=fields.STORED, date=fields.DATETIME)
+    dc = schema["date"].default_column()
+    assert isinstance(dc, columns.NumericColumn)
+
     ix = RamStorage().create_index(schema)
     w = ix.writer()
     d1 = datetime(2011, 7, 13)
@@ -721,9 +745,6 @@ def test_nocachefield_segments():
         q = query.TermRange("a", u("bravo"), u("k"))
         facet = sorting.FieldFacet("a", reverse=True)
 
-        cat = facet.categorizer(s)
-        assert cat.__class__ == sorting.PostingCategorizer
-
         r = s.search(q, sortedby=facet)
         assert [hit["a"] for hit in r] == ["juliet", "india", "foxtrot", "delta", "charlie", "bravo"]
 
@@ -805,13 +826,14 @@ def test_sort_text_field():
             facet.add_field("title", reverse=True)
 
             r = s.search(query.Every(), sortedby=facet)
-            assert [hit["title"] for hit in r] == ["Visual and Statistical Thinking",
-                                                   "Cognitive Style of Powerpoint",
-                                                   "Beautiful Evidence",
-                                                   "Visual Explanations",
-                                                   "Visual Display of Quantitative Information, The",
-                                                   "Envisioning Information",
-                                                   ]
+            target = ["Visual and Statistical Thinking",
+                      "Cognitive Style of Powerpoint",
+                      "Beautiful Evidence",
+                      "Visual Explanations",
+                      "Visual Display of Quantitative Information, The",
+                      "Envisioning Information",
+                      ]
+            assert [hit["title"] for hit in r] == target
 
     # Single segment
     ix = RamStorage().create_index(schema)

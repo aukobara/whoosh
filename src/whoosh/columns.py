@@ -25,6 +25,27 @@
 # those of the authors and should not be interpreted as representing official
 # policies, either expressed or implied, of Matt Chaput.
 
+"""
+The API and implementation of columns may change in the next version of Whoosh!
+
+This module contains "Column" objects which you can use as the argument to a
+Field object's ``sortable=`` keyword argument. Each field defines a default
+column type for when the user specifies ``sortable=True`` (the object returned
+by the field's ``default_column()`` method).
+
+The default column type for most fields is ``VarBytesColumn``,
+although numeric and date fields use ``NumericColumn``. Expert users may use
+other field types that may be faster or more storage efficient based on the
+field contents. For example, if a field always contains one of a limited number
+of possible values, a ``RefBytesColumn`` will save space by only storing the
+values once. If a field's values are always a fixed length, the
+``FixedBytesColumn`` saves space by not storing the length of each value.
+
+A ``Column`` object basically exists to store configuration information and
+provides two important methods: ``writer()`` to return a ``ColumnWriter`` object
+and ``reader()`` to return a ``ColumnReader`` object.
+"""
+
 from __future__ import division, with_statement
 import struct, warnings
 from array import array
@@ -40,11 +61,11 @@ from whoosh.compat import array_tobytes, xrange
 from whoosh.compat import dumps, loads
 from whoosh.filedb.structfile import StructFile
 from whoosh.idsets import BitSet, OnDiskBitSet
-from whoosh.system import emptybytes, _INT_SIZE
+from whoosh.system import emptybytes
 from whoosh.util.cache import lru_cache
 from whoosh.util.numeric import typecode_max, typecode_min
 from whoosh.util.numlists import GrowableArray
-from whoosh.util.varints import varint, varint_to_int
+from whoosh.util.varints import varint
 
 
 # Utility functions
@@ -1059,46 +1080,6 @@ class TranslatingColumnReader(ColumnReader):
     def __iter__(self):
         translate = self._translate
         return (translate(v) for v in self._reader)
-
-
-# Fake column reader for fields without columns
-
-class PostingColumnReader(ColumnReader):
-    """
-    Builds a synthetic column for fields that weren't indexed with column
-    storage. This object reads every posting for every term in the field, so
-    building it is quite expensive and the reader should cache it once it's
-    built.
-    """
-
-    def __init__(self, reader, fieldname):
-        self._length = reader.doc_count_all()
-        # Dictionary mapping document IDs to values
-        self._values = values = {}
-
-        fieldobj = reader.schema[fieldname]
-        self._frombytes =fieldobj.from_bytes
-
-        # Read the terms in the field in sorted order
-
-        btexts = fieldobj.sortable_terms(reader, fieldname)
-        for btext in btexts:
-            # Read the document IDs containing this term
-            # Global doc ids
-            postings = reader.postings(fieldname, btext)
-            for docid in postings.all_ids():
-                values[docid] = btext
-
-    def __len__(self):
-        return self._length
-
-    def __getitem__(self, docnum):
-        return self._values.get(docnum, emptybytes)
-
-    def __iter__(self):
-        values = self._values
-        for docnum in xrange(self._length):
-            yield values.get(docnum, emptybytes)
 
 
 # Column wrappers
