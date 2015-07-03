@@ -1,0 +1,14 @@
+### Python template
+*.py[cod]
+
+# Distribution / packaging
+build/
+dist/
+eggs/
+.eggs/
+*.egg-info/
+.installed.cfg
+*.egg
+
+.idea
+.cache
