@@ -171,6 +171,9 @@ class Column(object):
 
         return False
 
+    def __eq__(self, other):
+        return other.__class__ ==  self.__class__ and self.__dict__ == other.__dict__
+
 
 class ColumnWriter(object):
     def __init__(self, dbfile):
