@@ -32,7 +32,7 @@ if __name__ == "__main__":
         package_dir={'': 'src'},
         packages=find_packages("src"),
 
-        author="Matt Chaput",
+        author="Matt Chaput @ patched by aukobara@gmail.com",
         author_email="matt@whoosh.ca",
 
         description="Fast, pure-Python full text indexing, search, and spell checking library.",
@@ -40,7 +40,7 @@ if __name__ == "__main__":
 
         license="Two-clause BSD license",
         keywords="index search text spell",
-        url="http://bitbucket.org/mchaput/whoosh",
+        url="https://github.com/aukobara/whoosh",
 
         zip_safe=True,
         tests_require=['pytest'],
