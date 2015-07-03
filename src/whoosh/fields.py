@@ -1044,8 +1044,7 @@ class KEYWORD(FieldType):
         else:
             self.vector = None
 
-        if sortable:
-            self.column_type = self.default_column()
+        self.set_sortable(sortable)
 
 
 class TEXT(FieldType):
@@ -1104,13 +1103,7 @@ class TEXT(FieldType):
             formatclass = formats.Frequency
         self.format = formatclass(field_boost=field_boost)
 
-        if sortable:
-            if isinstance(sortable, columns.Column):
-                self.column_type = sortable
-            else:
-                self.column_type = columns.VarBytesColumn()
-        else:
-            self.column_type = None
+        self.set_sortable(sortable)
 
         self.spelling = spelling
         self.spelling_prefix = spelling_prefix
